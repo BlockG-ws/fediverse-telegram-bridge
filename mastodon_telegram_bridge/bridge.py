@@ -116,7 +116,7 @@ class Bridge:
                 await media_file.download_to_drive(custom_path=file_path)
                 media_ids.append(self.mastodon.media_post(file_path).id)
         await _wait_for_media_ready(media_ids)
-        status: AttribAccessDict = self.mastodon.status_post(text, visibility='public', media_ids=media_ids)
+        status: AttribAccessDict = self.mastodon.status_post(text, content_type='text/markdown', media_ids=media_ids)
         success_message = f'*Successfully forward message to mastodon.*\n{status.url}'
         if messages[0].is_automatic_forward:
             await messages[0].reply_markdown(success_message)
@@ -181,9 +181,10 @@ class Bridge:
                     return
                 footer = self.mastodon_footer(message)
                 text += f'\n\n{footer}'
-                status: AttribAccessDict = self.mastodon.status_post(status=text, visibility='public')
+                # respect the visibility setting of the account and tweaks the support for pleroma/akkoma
+                status: AttribAccessDict = self.mastodon.status_post(status=text, content_type='text/markdown')
                 # fixes markdown parse error for '_' in url
-                success_message = f'*Successfully forward message to mastodon.*\n{status.url.replace('_','\_')}'
+                success_message = f'*Successfully forward message to mastodon.*\n{status.url.replace('_','\\_')}'
                 if message.is_automatic_forward:
                     await message.reply_markdown(success_message)
                 else:
