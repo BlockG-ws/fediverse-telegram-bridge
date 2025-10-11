@@ -181,6 +181,23 @@ class Bridge:
                     return
                 footer = self.mastodon_footer(message)
                 text += f'\n\n{footer}'
+                # Convert message entities (like links) to Markdown text
+                if message.entities:
+                    # Sort entities by offset in reverse order to avoid index shifting
+                    sorted_entities = sorted(message.entities, key=lambda e: e.offset, reverse=True)
+                    text_list = list(text)
+
+                    for entity in sorted_entities:
+                        start = entity.offset
+                        end = entity.offset + entity.length
+                        entity_text = text[start:end]
+
+                        if entity.type == 'text_link' and entity.url:
+                            # Replace with Markdown link format
+                            markdown_link = f'[{entity_text}]({entity.url})'
+                            text_list[start:end] = markdown_link
+                    # join the text back to string
+                    text = ''.join(text_list)
                 # respect the visibility setting of the account and tweaks the support for pleroma/akkoma
                 status: AttribAccessDict = self.mastodon.status_post(status=text, content_type='text/markdown')
                 # fixes markdown parse error for '_' in url
