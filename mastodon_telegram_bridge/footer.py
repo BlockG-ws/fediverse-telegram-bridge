@@ -58,7 +58,7 @@ class MastodonFooter(Footer):
 
     def __get_forward_link(self, message: Message) -> Optional[str]:
         if message.forward_origin and hasattr(message.forward_origin, 'chat') and (chat_link := message.forward_origin.chat.link):
-            return f'{chat_link}/{message.forward_origin.chat.message_id}'
+            return f'{chat_link}/{message.forward_origin.message_id}'
         return None
 
     def make_footer(self, message: Message) -> list[str]:
