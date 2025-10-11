@@ -182,7 +182,8 @@ class Bridge:
                 footer = self.mastodon_footer(message)
                 text += f'\n\n{footer}'
                 status: AttribAccessDict = self.mastodon.status_post(status=text, visibility='public')
-                success_message = f'*Successfully forward message to mastodon.*\n{status.url}'
+                # fixes markdown parse error for '_' in url
+                success_message = f'*Successfully forward message to mastodon.*\n{status.url.replace('_','\_')}'
                 if message.is_automatic_forward:
                     await message.reply_markdown(success_message)
                 else:
