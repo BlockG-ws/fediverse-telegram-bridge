@@ -1,5 +1,6 @@
-betterlogging~=0.2
-Mastodon.py~=1.8
-markdownify~=0.11
-python-telegram-bot~=20.0
-tomli~=2.0
+betterlogging~=1.0.0
+Mastodon.py~=2.1.4
+markdownify~=1.2.0
+python-telegram-bot~=22.0
+tomli~=2.3.0
+
