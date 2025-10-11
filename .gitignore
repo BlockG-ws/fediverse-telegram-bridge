@@ -129,4 +129,3 @@ dmypy.json
 .pyre/
 
 config.toml
-_version.py
