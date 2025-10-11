@@ -7,7 +7,7 @@ from typing import Type, cast
 from mastodon import AttribAccessDict, CallbackStreamListener, Mastodon, MastodonAPIError
 from telegram import InputMediaPhoto, InputMediaVideo, Message, Update, Video
 from telegram.constants import ParseMode
-from telegram.ext import Application, CallbackContext, CommandHandler, MessageHandler, TypeHandler
+from telegram.ext import Application, CallbackContext, CommandHandler, MessageHandler, TypeHandler, filters
 from telegram.ext.filters import UpdateType
 from telegram.helpers import effective_message_type
 
@@ -141,7 +141,7 @@ class Bridge:
             logger.warning('No effective message.')
             return
         cfg = self.telegram_to_mastodon
-        if message.chat_id != cfg.channel_chat_id:
+        if message.chat.id != cfg.channel_chat_id:
             logger.warning('Received message from wrong chat id: %d', message.chat_id)
             await message.reply_text('This bot is only for specific channel or chat.')
             return
@@ -262,7 +262,7 @@ class Bridge:
         app.add_error_handler(self._error)
         app.add_handler(CommandHandler('start', self._start))
         if not self.telegram_to_mastodon.disable:
-            app.add_handler(MessageHandler(UpdateType.CHANNEL_POST, self._send_message_to_mastodon))
+            app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, self._send_message_to_mastodon))
         else:
             logger.warning('Skip telegram message handler, because telegram to mastodon is disabled.')
         app.run_polling()

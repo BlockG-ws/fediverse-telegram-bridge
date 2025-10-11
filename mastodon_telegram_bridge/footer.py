@@ -50,17 +50,15 @@ class MastodonFooter(Footer):
         self.show_forward_from = show_forward_from
 
     def __get_forward_name(self, message: Message) -> Optional[str]:
-        if message.forward_from:
-            return message.forward_from.name
-        if message.forward_from_chat:
-            return message.forward_from_chat.title
-        if message.forward_sender_name:
-            return message.forward_sender_name
+        if hasattr(message.forward_origin, 'chat'):
+            return message.forward_origin.chat.title
+        elif hasattr(message.forward_origin, 'sender_user'):
+            return message.forward_origin.sender_user.first_name
         return None
 
     def __get_forward_link(self, message: Message) -> Optional[str]:
-        if message.forward_from_chat and (chat_link := message.forward_from_chat.link):
-            return f'{chat_link}/{message.forward_from_message_id}'
+        if message.forward_origin and hasattr(message.forward_origin, 'chat') and (chat_link := message.forward_origin.chat.link):
+            return f'{chat_link}/{message.forward_origin.chat.message_id}'
         return None
 
     def make_footer(self, message: Message) -> list[str]:
