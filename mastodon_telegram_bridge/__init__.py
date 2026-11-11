@@ -1,4 +1,4 @@
-from ._version import __version__
+from .cli import version as __version__
 from .bridge import Bridge
 from .cli import main
 from .filter import Filter

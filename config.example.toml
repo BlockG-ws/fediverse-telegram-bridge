@@ -1,6 +1,11 @@
 [telegram]
 # telegram bot token, e.g. "1234567890:ABCDEF1234567890ABCDEF1234567890ABC"
 token = "1234567890:ABCDEF1234567890ABCDEF1234567890ABC"
+# Obtain these at https://my.telegram.org/apps (required even for a bot).
+api_id = 123456
+api_hash = "0123456789abcdef0123456789abcdef"
+# Optional SQLite session path; keep the resulting .session file private.
+session = "mastodon-telegram-bridge"
 
 
 [mastodon]

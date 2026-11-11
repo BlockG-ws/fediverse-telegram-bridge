@@ -2,7 +2,8 @@ import logging
 from typing import Any, Iterable, Optional
 
 from mastodon import AttribAccessDict
-from telegram import Message
+from telethon.tl.custom.message import Message
+from telethon.tl.types import PeerChannel, PeerUser
 
 logger = logging.getLogger(__name__)
 
@@ -50,15 +51,21 @@ class MastodonFooter(Footer):
         self.show_forward_from = show_forward_from
 
     def __get_forward_name(self, message: Message) -> Optional[str]:
-        if hasattr(message.forward_origin, 'chat'):
-            return message.forward_origin.chat.title
-        elif hasattr(message.forward_origin, 'sender_user'):
-            return message.forward_origin.sender_user.first_name
+        origin = message.fwd_from
+        if not origin:
+            return None
+        if origin.from_name:
+            return origin.from_name
+        if isinstance(origin.from_id, PeerChannel):
+            return f'channel {origin.from_id.channel_id}'
+        if isinstance(origin.from_id, PeerUser):
+            return f'user {origin.from_id.user_id}'
         return None
 
     def __get_forward_link(self, message: Message) -> Optional[str]:
-        if message.forward_origin and hasattr(message.forward_origin, 'chat') and (chat_link := message.forward_origin.chat.link):
-            return f'{chat_link}/{message.forward_origin.message_id}'
+        origin = message.fwd_from
+        if origin and isinstance(origin.from_id, PeerChannel) and origin.channel_post:
+            return f'https://t.me/c/{origin.from_id.channel_id}/{origin.channel_post}'
         return None
 
     def make_footer(self, message: Message) -> list[str]:
@@ -76,8 +83,12 @@ class MastodonFooter(Footer):
                 footer.append(self._forwarded_from(forward_from))
             if forward_link := self.__get_forward_link(message):
                 footer.append(forward_link)
-        if self.add_link and message.link is not None:
-            footer.append(message.link)
+        if self.add_link:
+            chat = message.chat
+            if chat and getattr(chat, 'username', None):
+                footer.append(f'https://t.me/{chat.username}/{message.id}')
+            elif message.chat_id and str(message.chat_id).startswith('-100'):
+                footer.append(f'https://t.me/c/{str(message.chat_id)[4:]}/{message.id}')
         return footer
 
 

@@ -1,6 +1,6 @@
 betterlogging~=1.0.0
 Mastodon.py~=2.1.4
 markdownify~=1.2.0
-python-telegram-bot~=22.0
+Telethon>=1.36,<2
 tomli~=2.3.0
 

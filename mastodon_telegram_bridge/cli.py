@@ -1,14 +1,19 @@
 import argparse
+from importlib.metadata import PackageNotFoundError, version as package_version
 from typing import Type, cast, overload
 
 import betterlogging as logging
 import tomli
 
-from ._version import __version__ as version
 from .bridge import Bridge
 from .filter import Filter
 from .footer import Footer
 from .typing import ConfigDict
+
+try:
+    version = package_version('mastodon-telegram-bridge')
+except PackageNotFoundError:
+    version = '0.1.0'
 
 @overload
 def main() -> None: ...

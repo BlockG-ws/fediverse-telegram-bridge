@@ -1,16 +1,7 @@
-from typing import Iterable, MutableSequence, NamedTuple, Type, TypedDict
-
-from telegram import Message
+from typing import Iterable, NamedTuple, Type, TypedDict
 
 from .filter import Filter
 from .footer import Footer
-
-
-class MediaGroup(NamedTuple):
-    """MediaGroup
-    """
-    message: MutableSequence[Message]
-    footer: str
 
 
 class OptionsDict(TypedDict):
@@ -28,10 +19,16 @@ class CustomArgs(TypedDict, total=False):
     telegram_footer: Type[Footer]
 
 
-class TelegramOptionsDict(TypedDict):
+class TelegramRequiredOptionsDict(TypedDict):
     """TelegramOptionsDict
     """
     token: str
+    api_id: int
+    api_hash: str
+
+
+class TelegramOptionsDict(TelegramRequiredOptionsDict, total=False):
+    session: str
 
 
 class MastodonOptionsDict(TypedDict):

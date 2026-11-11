@@ -17,7 +17,7 @@ class TelegramMarkdownConverter(MarkdownConverter):
         escape_brackets = True
         escape_backquote = True
 
-    def escape(self, text: str) -> str:
+    def escape(self, text: str, parent_tags: set[str]) -> str:
         """Escape some characters
 
         Args:
