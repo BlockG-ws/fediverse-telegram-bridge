@@ -24,4 +24,7 @@ If channel posts are not received, check that the bot is a channel administrator
 - Markdown support for pleroma-like instances
 
 ## TODO
-- [] Handle message editing
+- [ ] Handle message editing, replies & deletion
+- [ ] Custom footer for messages
+- [ ] Support forwarding to Telegram for pleroma-like instances 
+- [ ] Allow to change visibility settings in config files
