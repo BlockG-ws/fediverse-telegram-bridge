@@ -10,6 +10,7 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 from mastodon import AttribAccessDict, CallbackStreamListener, Mastodon, MastodonAPIError
 from mastodon.return_types import Status, try_cast_recurse
 from telethon import TelegramClient, events
+from telethon.extensions import html as telegram_html
 from telethon.tl.custom.message import Message
 from websockets.asyncio.client import connect
 
@@ -45,6 +46,8 @@ class Bridge:
         self.telegram_to_mastodon = TelegramToMastodonOptions(**options['telegram_to_mastodon'])
         if self.telegram_to_mastodon.visibility not in (None, 'public', 'unlisted', 'private', 'direct'):
             raise ValueError('telegram_to_mastodon.visibility must be public, unlisted, private or direct')
+        if self.telegram_to_mastodon.format not in ('markdown', 'plain', 'html'):
+            raise ValueError('telegram_to_mastodon.format must be markdown, plain or html')
         if self.telegram_to_mastodon.disable and self.mastodon_to_telegram.disable:
             raise ValueError('Both telegram_to_mastodon and mastodon_to_telegram are disabled, nothing to do.')
         self.mastodon_filter = mastodon_filter(**self.telegram_to_mastodon.filter)
@@ -78,12 +81,24 @@ class Bridge:
             wait_time *= 2
         raise TimeoutError('Media is not ready after 5 retries')
 
+    def _format_telegram_message(self, message: Message) -> str:
+        post_format = self.telegram_to_mastodon.format
+        if post_format == 'markdown':
+            text = telegram_to_markdown(message.raw_text or '', message.entities)
+        elif post_format == 'html':
+            text = telegram_html.unparse(message.raw_text or '', message.entities)
+        else:
+            text = message.raw_text or ''
+        footer = self.mastodon_footer(message)
+        if footer:
+            text += '\n\n' + (escape_html(footer) if post_format == 'html' else footer)
+        return text
+
     async def _send_media_to_mastodon(self, messages: list[Message]) -> None:
-        cfg = self.telegram_to_mastodon
         caption_message = next((message for message in messages if message.raw_text), messages[0])
         if not self.mastodon_filter(caption_message.raw_text or ''):
             return
-        text = telegram_to_markdown(caption_message.raw_text or '', caption_message.entities)
+        text = self._format_telegram_message(caption_message)
         if len(messages) > 4:
             logger.warning('Too many media items: %d', len(messages))
             return
@@ -116,11 +131,8 @@ class Bridge:
             self.storage.release(post_id)
             return
         await self._wait_for_media_ready(media_ids)
-        footer = self.mastodon_footer(caption_message)
-        if footer:
-            text += f'\n\n{footer}'
         status = await asyncio.to_thread(self.mastodon.status_post, text,
-                                         content_type='text/markdown', media_ids=media_ids,
+                                         content_type=f'text/{cfg.format}', media_ids=media_ids,
                                          visibility=cfg.visibility,
                                          in_reply_to_id=self._reply_status_id(caption_message),
                                          idempotency_key=f'tg:{caption_message.chat_id}:{caption_message.id}')
@@ -151,13 +163,10 @@ class Bridge:
                 post_id = self.storage.reserve_telegram([(message.chat_id, message.id)])
                 if post_id is None:
                     return
-                text = telegram_to_markdown(message.raw_text, message.entities)
-                footer = self.mastodon_footer(message)
-                if footer:
-                    text += f'\n\n{footer}'
+                text = self._format_telegram_message(message)
                 try:
                     status = await asyncio.to_thread(self.mastodon.status_post, text,
-                                                      content_type='text/markdown', visibility=cfg.visibility,
+                                                      content_type=f'text/{cfg.format}', visibility=cfg.visibility,
                                                       in_reply_to_id=self._reply_status_id(message),
                                                       idempotency_key=f'tg:{message.chat_id}:{message.id}')
                     self.storage.complete_telegram(post_id, status.id)
@@ -186,10 +195,7 @@ class Bridge:
         if not post or post.origin != 'telegram' or post.state != 'sent' or post.primary_message_id != message.id:
             return
         try:
-            text = telegram_to_markdown(message.raw_text or '', message.entities)
-            footer = self.mastodon_footer(message)
-            if footer:
-                text += f'\n\n{footer}'
+            text = self._format_telegram_message(message)
             await asyncio.to_thread(self.mastodon.status_update, post.status_id, text)
         except Exception as exc:
             await self._report_error(self.telegram_to_mastodon.pm_chat_id, exc)

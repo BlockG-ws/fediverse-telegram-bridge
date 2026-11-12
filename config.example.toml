@@ -46,6 +46,10 @@ pm_chat_id = 0
 # Omit this setting to keep the account default.
 # visibility = "unlisted"
 
+# Format for Telegram text and captions sent to Fediverse: "markdown", "plain", or "html".
+# Defaults to "markdown". The Fediverse server must support the chosen content type.
+# format = "markdown"
+
 
 [options.telegram_to_mastodon.filter]
 # optional, filters for messages forwarding

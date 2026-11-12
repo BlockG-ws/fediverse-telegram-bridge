@@ -22,7 +22,7 @@ To append custom text to forwarded posts, set `text` under `[options.telegram_to
 
 To override the Fediverse account's default visibility for posts forwarded from Telegram, set `visibility = "unlisted"` under `[options.telegram_to_mastodon]`. Supported values are `public`, `unlisted`, `private`, and `direct`; omitting the setting keeps the account default.
 
-Telegram text and media captions are converted from Telegram formatting to Fediverse Markdown, including bold, italic, strikethrough, code, quotes, and links. Formatting without a Markdown equivalent, such as underline and spoilers, is forwarded as plain text.
+Set `format` under `[options.telegram_to_mastodon]` to `"markdown"` (default), `"plain"`, or `"html"`. This applies to text posts, media captions, and edits. Markdown converts Telegram formatting such as bold, italic, strikethrough, code, quotes, and links; formatting without a Markdown equivalent, such as underline and spoilers, becomes plain text. Plain sends the original text without formatting, while HTML preserves supported Telegram entities. The Fediverse server must support the selected content type; Mastodon servers ignore the content type parameter.
 
 Fediverse HTML posts are forwarded to Telegram with their text formatting, links, and paragraph breaks preserved.
 
