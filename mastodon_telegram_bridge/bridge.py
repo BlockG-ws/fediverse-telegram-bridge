@@ -55,6 +55,7 @@ class Bridge:
         self.mastodon_footer = mastodon_footer(**self.telegram_to_mastodon.footer)
         self.telegram_footer = telegram_footer(**self.mastodon_to_telegram.footer)
         self.storage_path = (storage or {}).get('path', 'bridge.sqlite3')
+        self._posting_lock = asyncio.Lock()
 
     async def _report_error(self, chat_id: int, exc: Exception) -> None:
         logger.exception('Bridge error', exc_info=exc)
@@ -131,12 +132,13 @@ class Bridge:
             self.storage.release(post_id)
             return
         await self._wait_for_media_ready(media_ids)
-        status = await asyncio.to_thread(self.mastodon.status_post, text,
-                                         content_type=f'text/{cfg.format}', media_ids=media_ids,
-                                         visibility=cfg.visibility,
-                                         in_reply_to_id=self._reply_status_id(caption_message),
-                                         idempotency_key=f'tg:{caption_message.chat_id}:{caption_message.id}')
-        self.storage.complete_telegram(post_id, status.id)
+        async with self._posting_lock:
+            status = await asyncio.to_thread(self.mastodon.status_post, text,
+                                             content_type=f'text/{cfg.format}', media_ids=media_ids,
+                                             visibility=cfg.visibility,
+                                             in_reply_to_id=self._reply_status_id(caption_message),
+                                             idempotency_key=f'tg:{caption_message.chat_id}:{caption_message.id}')
+            self.storage.complete_telegram(post_id, status.id)
         await self._notify_success(caption_message, status.url, cfg.pm_chat_id)
 
     def _reply_status_id(self, message: Message) -> str | None:
@@ -165,11 +167,12 @@ class Bridge:
                     return
                 text = self._format_telegram_message(message)
                 try:
-                    status = await asyncio.to_thread(self.mastodon.status_post, text,
-                                                      content_type=f'text/{cfg.format}', visibility=cfg.visibility,
-                                                      in_reply_to_id=self._reply_status_id(message),
-                                                      idempotency_key=f'tg:{message.chat_id}:{message.id}')
-                    self.storage.complete_telegram(post_id, status.id)
+                    async with self._posting_lock:
+                        status = await asyncio.to_thread(self.mastodon.status_post, text,
+                                                          content_type=f'text/{cfg.format}', visibility=cfg.visibility,
+                                                          in_reply_to_id=self._reply_status_id(message),
+                                                          idempotency_key=f'tg:{message.chat_id}:{message.id}')
+                        self.storage.complete_telegram(post_id, status.id)
                 except Exception:
                     self.storage.release(post_id)
                     raise
@@ -223,7 +226,8 @@ class Bridge:
                     (status.application is None or status.application.name != self._mastodon_app_name) and
                     self.telegram_filter(status)):
                 return
-            post_id = self.storage.reserve_fediverse(status.id)
+            async with self._posting_lock:
+                post_id = self.storage.reserve_fediverse(status.id)
             if post_id is None:
                 return
             try:
