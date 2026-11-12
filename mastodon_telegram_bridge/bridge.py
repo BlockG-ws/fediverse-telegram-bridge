@@ -286,12 +286,12 @@ class Bridge:
 
     async def _run(self) -> None:
         self.storage = Storage(self.storage_path, self.mastodon.api_base_url)
-        await self.telegram.start(bot_token=self.bot_token)
         queue: asyncio.Queue[AttribAccessDict] = asyncio.Queue()
         stream = None
         stream_task = None
         consumer = None
         try:
+            await self.telegram.start(bot_token=self.bot_token)
             if not self.telegram_to_mastodon.disable:
                 self.telegram.add_event_handler(
                     self._on_new_message,
@@ -344,4 +344,7 @@ class Bridge:
         if dry_run:
             logger.info('Configuration valid; dry run complete.')
             return
-        asyncio.run(self._run())
+        try:
+            asyncio.run(self._run())
+        except KeyboardInterrupt:
+            logger.info('Bridge stopped.')
