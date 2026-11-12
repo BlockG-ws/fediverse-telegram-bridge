@@ -15,8 +15,10 @@ dependencies = [
     "beautifulsoup4~=4.15.0",
     "Mastodon.py~=2.1.4",
     "markdownify~=1.2.0",
+    "sqlalchemy>=2,<3",
     "Telethon>=1.36,<2",
     "tomli~=2.3.0",
+    "typing-extensions>=4.12",
     "websockets>=15,<16",
 ]
 

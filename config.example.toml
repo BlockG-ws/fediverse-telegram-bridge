@@ -7,6 +7,10 @@ api_hash = "0123456789abcdef0123456789abcdef"
 # Optional SQLite session path; keep the resulting .session file private.
 session = "mastodon-telegram-bridge"
 
+[storage]
+# Persistent SQLite database for message mappings. Back it up with the session file.
+path = "bridge.sqlite3"
+
 
 [mastodon]
 # api base url, e.g. "mastodon.social"

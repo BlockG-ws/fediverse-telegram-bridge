@@ -131,3 +131,6 @@ dmypy.json
 config.toml
 *.session
 *.session-journal
+bridge.sqlite3
+bridge.sqlite3-shm
+bridge.sqlite3-wal

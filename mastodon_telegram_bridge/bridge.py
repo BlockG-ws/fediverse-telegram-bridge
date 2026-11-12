@@ -15,8 +15,9 @@ from websockets.asyncio.client import connect
 
 from .filter import Filter, MastodonFilter, TelegramFilter
 from .footer import Footer, MastodonFooter, TelegramFooter
+from .storage import Storage
 from .typing import (BridgeOptionsDict, MastodonOptionsDict, MastodonToTelegramOptions,
-                     TelegramOptionsDict, TelegramToMastodonOptions)
+                     StorageOptionsDict, TelegramOptionsDict, TelegramToMastodonOptions)
 from .utils import fediverse_to_telegram_html, format_exception, telegram_to_markdown
 
 
@@ -30,7 +31,8 @@ class Bridge:
                  options: BridgeOptionsDict, mastodon_filter: Type[Filter] = MastodonFilter,
                  telegram_filter: Type[Filter] = TelegramFilter,
                  mastodon_footer: Type[Footer] = MastodonFooter,
-                 telegram_footer: Type[Footer] = TelegramFooter) -> None:
+                 telegram_footer: Type[Footer] = TelegramFooter,
+                 storage: StorageOptionsDict | None = None) -> None:
         self.mastodon = Mastodon(**mastodon)
         self.telegram = TelegramClient(
             telegram.get('session', 'mastodon-telegram-bridge'),
@@ -49,6 +51,7 @@ class Bridge:
         self.telegram_filter = telegram_filter(**self.mastodon_to_telegram.filter)
         self.mastodon_footer = mastodon_footer(**self.telegram_to_mastodon.footer)
         self.telegram_footer = telegram_footer(**self.mastodon_to_telegram.footer)
+        self.storage_path = (storage or {}).get('path', 'bridge.sqlite3')
 
     async def _report_error(self, chat_id: int, exc: Exception) -> None:
         logger.exception('Bridge error', exc_info=exc)
@@ -84,6 +87,20 @@ class Bridge:
         if len(messages) > 4:
             logger.warning('Too many media items: %d', len(messages))
             return
+        source_ids = [(caption_message.chat_id, caption_message.id)] + [
+            (message.chat_id, message.id) for message in messages if message.id != caption_message.id]
+        post_id = self.storage.reserve_telegram(source_ids)
+        if post_id is None:
+            return
+        try:
+            await self._post_media_to_mastodon(messages, caption_message, text, post_id)
+        except Exception:
+            self.storage.release(post_id)
+            raise
+
+    async def _post_media_to_mastodon(self, messages: list[Message], caption_message: Message,
+                                     text: str, post_id: int) -> None:
+        cfg = self.telegram_to_mastodon
         media_ids = []
         with TemporaryDirectory(prefix='mastodon') as tmpdir:
             for message in messages:
@@ -96,6 +113,7 @@ class Bridge:
                     media = await asyncio.to_thread(self.mastodon.media_post, downloaded)
                     media_ids.append(media.id)
         if not media_ids:
+            self.storage.release(post_id)
             return
         await self._wait_for_media_ready(media_ids)
         footer = self.mastodon_footer(caption_message)
@@ -103,8 +121,17 @@ class Bridge:
             text += f'\n\n{footer}'
         status = await asyncio.to_thread(self.mastodon.status_post, text,
                                          content_type='text/markdown', media_ids=media_ids,
-                                         visibility=cfg.visibility)
+                                         visibility=cfg.visibility,
+                                         in_reply_to_id=self._reply_status_id(caption_message),
+                                         idempotency_key=f'tg:{caption_message.chat_id}:{caption_message.id}')
+        self.storage.complete_telegram(post_id, status.id)
         await self._notify_success(caption_message, status.url, cfg.pm_chat_id)
+
+    def _reply_status_id(self, message: Message) -> str | None:
+        if not message.reply_to_msg_id:
+            return None
+        parent = self.storage.telegram_post(message.chat_id, message.reply_to_msg_id)
+        return parent.status_id if parent and parent.state == 'sent' else None
 
     async def _notify_success(self, message: Message, url: str, pm_chat_id: int) -> None:
         text = f'Successfully forwarded to Mastodon.\n{url}'
@@ -121,12 +148,22 @@ class Bridge:
             elif message.raw_text:
                 if not self.mastodon_filter(message.raw_text):
                     return
+                post_id = self.storage.reserve_telegram([(message.chat_id, message.id)])
+                if post_id is None:
+                    return
                 text = telegram_to_markdown(message.raw_text, message.entities)
                 footer = self.mastodon_footer(message)
                 if footer:
                     text += f'\n\n{footer}'
-                status = await asyncio.to_thread(self.mastodon.status_post, text,
-                                                  content_type='text/markdown', visibility=cfg.visibility)
+                try:
+                    status = await asyncio.to_thread(self.mastodon.status_post, text,
+                                                      content_type='text/markdown', visibility=cfg.visibility,
+                                                      in_reply_to_id=self._reply_status_id(message),
+                                                      idempotency_key=f'tg:{message.chat_id}:{message.id}')
+                    self.storage.complete_telegram(post_id, status.id)
+                except Exception:
+                    self.storage.release(post_id)
+                    raise
                 await self._notify_success(message, status.url, cfg.pm_chat_id)
         except Exception as exc:
             await self._report_error(cfg.pm_chat_id, exc)
@@ -143,6 +180,34 @@ class Bridge:
         except Exception as exc:
             await self._report_error(self.telegram_to_mastodon.pm_chat_id, exc)
 
+    async def _on_edited_message(self, event: events.MessageEdited.Event) -> None:
+        message = event.message
+        post = self.storage.telegram_post(message.chat_id, message.id)
+        if not post or post.origin != 'telegram' or post.state != 'sent' or post.primary_message_id != message.id:
+            return
+        try:
+            text = telegram_to_markdown(message.raw_text or '', message.entities)
+            footer = self.mastodon_footer(message)
+            if footer:
+                text += f'\n\n{footer}'
+            await asyncio.to_thread(self.mastodon.status_update, post.status_id, text)
+        except Exception as exc:
+            await self._report_error(self.telegram_to_mastodon.pm_chat_id, exc)
+
+    async def _on_deleted_message(self, event: events.MessageDeleted.Event) -> None:
+        if event.chat_id is None:
+            logger.warning('Telegram deletion without chat ID cannot be synchronized')
+            return
+        for message_id in event.deleted_ids:
+            post = self.storage.telegram_post(event.chat_id, message_id)
+            if not post or post.origin != 'telegram' or post.state != 'sent':
+                continue
+            try:
+                await asyncio.to_thread(self.mastodon.status_delete, post.status_id)
+                self.storage.mark_deleted(post.id)
+            except Exception as exc:
+                await self._report_error(self.telegram_to_mastodon.pm_chat_id, exc)
+
     async def _send_message_to_telegram(self, status: AttribAccessDict) -> None:
         cfg = self.mastodon_to_telegram
         try:
@@ -150,31 +215,46 @@ class Bridge:
                     (status.application is None or status.application.name != self._mastodon_app_name) and
                     self.telegram_filter(status)):
                 return
-            if status.reblog:
-                if cfg.forward_reblog_link_only:
-                    if status.reblog.visibility != 'public':
-                        return
-                    await self.telegram.send_message(cfg.channel_chat_id,
-                                                     escape_html(self.telegram_footer(status.reblog)),
-                                                     parse_mode='html', link_preview=False)
-                    return
-                status = status.reblog
-            text = fediverse_to_telegram_html(status.content)
-            if status.spoiler_text:
-                text = f'<strong>{escape_html(status.spoiler_text)}</strong>\n\n{text}'
-            footer = self.telegram_footer(status)
-            if footer:
-                text += '\n' + escape_html(footer)
-            media_urls = [item.url for item in status.media_attachments
-                          if item.type in ('image', 'video')]
-            if media_urls:
-                await self.telegram.send_file(cfg.channel_chat_id, media_urls,
-                                              caption=text, parse_mode='html')
-            else:
-                await self.telegram.send_message(cfg.channel_chat_id, text,
-                                                 parse_mode='html', link_preview=False)
+            post_id = self.storage.reserve_fediverse(status.id)
+            if post_id is None:
+                return
+            try:
+                await self._post_to_telegram(status, post_id)
+            except Exception:
+                self.storage.release(post_id)
+                raise
         except Exception as exc:
             await self._report_error(cfg.pm_chat_id, exc)
+
+    async def _post_to_telegram(self, status: AttribAccessDict, post_id: int) -> None:
+        cfg = self.mastodon_to_telegram
+        if status.reblog:
+            if cfg.forward_reblog_link_only:
+                if status.reblog.visibility != 'public':
+                    self.storage.release(post_id)
+                    return
+                sent = await self.telegram.send_message(cfg.channel_chat_id,
+                                                        escape_html(self.telegram_footer(status.reblog)),
+                                                        parse_mode='html', link_preview=False)
+                self.storage.complete_fediverse(post_id, [(sent.chat_id, sent.id)])
+                return
+            status = status.reblog
+        text = fediverse_to_telegram_html(status.content)
+        if status.spoiler_text:
+            text = f'<strong>{escape_html(status.spoiler_text)}</strong>\n\n{text}'
+        footer = self.telegram_footer(status)
+        if footer:
+            text += '\n' + escape_html(footer)
+        media_urls = [item.url for item in status.media_attachments
+                      if item.type in ('image', 'video')]
+        if media_urls:
+            sent = await self.telegram.send_file(cfg.channel_chat_id, media_urls,
+                                                 caption=text, parse_mode='html')
+        else:
+            sent = await self.telegram.send_message(cfg.channel_chat_id, text,
+                                                    parse_mode='html', link_preview=False)
+        sent_messages = sent if isinstance(sent, list) else [sent]
+        self.storage.complete_fediverse(post_id, [(message.chat_id, message.id) for message in sent_messages])
 
     async def _stream_pleroma_user(self, queue: asyncio.Queue[AttribAccessDict], streaming_url: str) -> None:
         parsed = urlsplit(streaming_url)
@@ -197,6 +277,7 @@ class Bridge:
             await asyncio.sleep(5)
 
     async def _run(self) -> None:
+        self.storage = Storage(self.storage_path, self.mastodon.api_base_url)
         await self.telegram.start(bot_token=self.bot_token)
         queue: asyncio.Queue[AttribAccessDict] = asyncio.Queue()
         stream = None
@@ -211,6 +292,14 @@ class Bridge:
                 self.telegram.add_event_handler(
                     self._on_album,
                     events.Album(chats=self.telegram_to_mastodon.channel_chat_id),
+                )
+                self.telegram.add_event_handler(
+                    self._on_edited_message,
+                    events.MessageEdited(chats=self.telegram_to_mastodon.channel_chat_id),
+                )
+                self.telegram.add_event_handler(
+                    self._on_deleted_message,
+                    events.MessageDeleted(chats=self.telegram_to_mastodon.channel_chat_id),
                 )
             if not self.mastodon_to_telegram.disable:
                 instance = await asyncio.to_thread(self.mastodon.instance)

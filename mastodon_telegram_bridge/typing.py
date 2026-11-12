@@ -1,5 +1,7 @@
 from typing import Iterable, NamedTuple, Type, TypedDict
 
+from typing_extensions import NotRequired
+
 from .filter import Filter
 from .footer import Footer
 
@@ -96,6 +98,10 @@ class BridgeOptionsDict(TypedDict):
     mastodon_to_telegram: MastodonToTelegramOptionsDict
 
 
+class StorageOptionsDict(TypedDict, total=False):
+    path: str
+
+
 # Config Dict Types loaded from config.toml
 class ConfigDict(TypedDict):
     """Config Dict
@@ -103,6 +109,7 @@ class ConfigDict(TypedDict):
     telegram: TelegramOptionsDict
     mastodon: MastodonOptionsDict
     options: BridgeOptionsDict
+    storage: NotRequired[StorageOptionsDict]
 
 
 # Bridge Options
