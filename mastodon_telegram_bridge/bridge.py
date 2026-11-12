@@ -1,13 +1,17 @@
 import asyncio
+import json
 import logging
 import os
 from tempfile import TemporaryDirectory
 from typing import Type
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from mastodon import AttribAccessDict, CallbackStreamListener, Mastodon, MastodonAPIError
+from mastodon.return_types import Status, try_cast_recurse
 from telethon import TelegramClient, events
 from telethon.helpers import add_surrogate, del_surrogate
 from telethon.tl.custom.message import Message
+from websockets.asyncio.client import connect
 
 from .filter import Filter, MastodonFilter, TelegramFilter
 from .footer import Footer, MastodonFooter, TelegramFooter
@@ -169,10 +173,31 @@ class Bridge:
         except Exception as exc:
             await self._report_error(cfg.pm_chat_id, exc)
 
+    async def _stream_pleroma_user(self, queue: asyncio.Queue[AttribAccessDict], streaming_url: str) -> None:
+        parsed = urlsplit(streaming_url)
+        path = parsed.path.rstrip('/') or '/api/v1/streaming'
+        query = urlencode({'stream': 'user', 'access_token': self.mastodon.access_token})
+        url = urlunsplit((parsed.scheme, parsed.netloc, path, query, ''))
+        while True:
+            try:
+                async with connect(url) as websocket:
+                    logger.info('Connected to Pleroma/Akkoma user stream')
+                    async for message in websocket:
+                        event = json.loads(message)
+                        if event.get('event') == 'update':
+                            payload = event['payload']
+                            status = json.loads(payload) if isinstance(payload, str) else payload
+                            await queue.put(try_cast_recurse(Status, status))
+            except Exception as exc:
+                logger.warning('Pleroma/Akkoma user stream disconnected: %s',
+                               str(exc).replace(self.mastodon.access_token, '[redacted]'))
+            await asyncio.sleep(5)
+
     async def _run(self) -> None:
         await self.telegram.start(bot_token=self.bot_token)
         queue: asyncio.Queue[AttribAccessDict] = asyncio.Queue()
         stream = None
+        stream_task = None
         consumer = None
         try:
             if not self.telegram_to_mastodon.disable:
@@ -185,12 +210,18 @@ class Bridge:
                     events.Album(chats=self.telegram_to_mastodon.channel_chat_id),
                 )
             if not self.mastodon_to_telegram.disable:
-                loop = asyncio.get_running_loop()
-                listener = CallbackStreamListener(
-                    update_handler=lambda status: loop.call_soon_threadsafe(queue.put_nowait, status),
-                )
-                stream = await asyncio.to_thread(self.mastodon.stream_user, listener=listener,
-                                                  run_async=True, reconnect_async=True)
+                instance = await asyncio.to_thread(self.mastodon.instance)
+                if any(name in instance.version.lower() for name in ('pleroma', 'akkoma')):
+                    stream_task = asyncio.create_task(
+                        self._stream_pleroma_user(queue, instance.urls.streaming_api),
+                    )
+                else:
+                    loop = asyncio.get_running_loop()
+                    listener = CallbackStreamListener(
+                        update_handler=lambda status: loop.call_soon_threadsafe(queue.put_nowait, status),
+                    )
+                    stream = await asyncio.to_thread(self.mastodon.stream_user, listener=listener,
+                                                      run_async=True, reconnect_async=True)
 
                 async def consume() -> None:
                     while True:
@@ -199,6 +230,9 @@ class Bridge:
                 consumer = asyncio.create_task(consume())
             await self.telegram.run_until_disconnected()
         finally:
+            if stream_task:
+                stream_task.cancel()
+                await asyncio.gather(stream_task, return_exceptions=True)
             if consumer:
                 consumer.cancel()
                 await asyncio.gather(consumer, return_exceptions=True)

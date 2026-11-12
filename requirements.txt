@@ -3,4 +3,5 @@ Mastodon.py~=2.1.4
 markdownify~=1.2.0
 Telethon>=1.36,<2
 tomli~=2.3.0
+websockets>=15,<16
 

@@ -22,9 +22,9 @@ If channel posts are not received, check that the bot is a channel administrator
   - Markdown parse error when there is a '_' within the link
 - Respect the default visibility settings
 - Markdown support for pleroma-like instances
+- Receive Pleroma/Akkoma user updates through their WebSocket streaming API.
 
 ## TODO
 - [ ] Handle message editing, replies & deletion
 - [ ] Custom footer for messages
-- [ ] Support forwarding to Telegram for pleroma-like instances 
 - [ ] Allow to change visibility settings in config files
