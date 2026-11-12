@@ -96,7 +96,9 @@ class Bridge:
         if not media_ids:
             return
         await self._wait_for_media_ready(media_ids)
-        text += f'\n\n{self.mastodon_footer(caption_message)}'
+        footer = self.mastodon_footer(caption_message)
+        if footer:
+            text += f'\n\n{footer}'
         status = await asyncio.to_thread(self.mastodon.status_post, text,
                                          content_type='text/markdown', media_ids=media_ids)
         await self._notify_success(caption_message, status.url, cfg.pm_chat_id)
@@ -123,7 +125,9 @@ class Bridge:
                         end = start + entity.length
                         text = text[:start] + f'[{add_surrogate(entity_text)}]({entity.url})' + text[end:]
                 text = del_surrogate(text)
-                text += f'\n\n{self.mastodon_footer(message)}'
+                footer = self.mastodon_footer(message)
+                if footer:
+                    text += f'\n\n{footer}'
                 status = await asyncio.to_thread(self.mastodon.status_post, text,
                                                   content_type='text/markdown')
                 await self._notify_success(message, status.url, cfg.pm_chat_id)
@@ -161,7 +165,9 @@ class Bridge:
             text = markdownify(status.content)
             if status.spoiler_text:
                 text = f'**{status.spoiler_text}**\n\n{text}'
-            text += '\n' + markdownify(self.telegram_footer(status))
+            footer = self.telegram_footer(status)
+            if footer:
+                text += '\n' + markdownify(footer)
             media_urls = [item.url for item in status.media_attachments
                           if item.type in ('image', 'video')]
             if media_urls:

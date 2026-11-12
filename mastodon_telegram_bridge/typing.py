@@ -49,6 +49,7 @@ class MastodonToTelegramFooterOptionsDict(TypedDict):
     """
     add_link: bool
     tags: Iterable[str]
+    text: str
 
 
 class MastodonToTelegramOptionsDict(TypedDict):
@@ -67,6 +68,7 @@ class TelegramToMastodonFooterOptionsDict(TypedDict):
     """
     add_link: bool
     show_forward_from: bool
+    text: str
 
 
 class TelegramToMastodonFilterOptionsDict(TypedDict):
@@ -118,6 +120,7 @@ class MastodonToTelegramOptions(NamedTuple):
     footer: OptionsDict = MastodonToTelegramFooterOptionsDict(
         add_link=True,
         tags=['#mastodon'],
+        text='',
     )
 
 
@@ -134,4 +137,5 @@ class TelegramToMastodonOptions(NamedTuple):
     footer: OptionsDict = TelegramToMastodonFooterOptionsDict(
         add_link=False,
         show_forward_from=True,
+        text='',
     )

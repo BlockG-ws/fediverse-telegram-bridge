@@ -14,6 +14,8 @@ Telethon stores its authorization in the configured `session` path (default: `ma
 
 If channel posts are not received, check that the bot is a channel administrator. For group messages, disable bot privacy in BotFather if the bot needs to see all messages.
 
+To append custom text to forwarded posts, set `text` under `[options.telegram_to_mastodon.footer]` or `[options.mastodon_to_telegram.footer]`. For example, `text = "Forwarded by my bridge"`. The default is an empty string, which adds no custom text.
+
 ## Changes in the fork
 - Use Telethon for Telegram messages and media albums.
 - Keep `pyproject.toml`, `requirements.txt`, and `uv.lock` dependencies consistent.
@@ -26,5 +28,4 @@ If channel posts are not received, check that the bot is a channel administrator
 
 ## TODO
 - [ ] Handle message editing, replies & deletion
-- [ ] Custom footer for messages
 - [ ] Allow to change visibility settings in config files

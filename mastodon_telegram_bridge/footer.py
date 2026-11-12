@@ -45,10 +45,11 @@ class MastodonFooter(Footer):
     """Footer for mastodon statuses
     """
 
-    def __init__(self, *, add_link: bool, show_forward_from: bool, **kwargs: Any) -> None:
+    def __init__(self, *, add_link: bool, show_forward_from: bool, text: str = '', **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.add_link = add_link
         self.show_forward_from = show_forward_from
+        self.text = text
 
     def __get_forward_name(self, message: Message) -> Optional[str]:
         origin = message.fwd_from
@@ -89,6 +90,8 @@ class MastodonFooter(Footer):
                 footer.append(f'https://t.me/{chat.username}/{message.id}')
             elif message.chat_id and str(message.chat_id).startswith('-100'):
                 footer.append(f'https://t.me/c/{str(message.chat_id)[4:]}/{message.id}')
+        if self.text:
+            footer.append(self.text)
         return footer
 
 
@@ -96,10 +99,11 @@ class TelegramFooter(Footer):
     """Footer for telegram messages
     """
 
-    def __init__(self, *, add_link: bool, tags: Iterable[str], **kwargs: Any) -> None:
+    def __init__(self, *, add_link: bool, tags: Iterable[str], text: str = '', **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.add_link = add_link
         self.tags = tags
+        self.text = text
         self.__check_tags()
 
     def __check_tags(self) -> None:
@@ -124,4 +128,6 @@ class TelegramFooter(Footer):
             footer.append(status.url)
         if self.tags:
             footer.append(' '.join(f'{tag}' for tag in self.tags))
+        if self.text:
+            footer.append(self.text)
         return footer

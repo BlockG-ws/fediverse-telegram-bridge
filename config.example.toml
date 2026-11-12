@@ -57,6 +57,9 @@ add_link = false
 # whether to show the original post author
 show_forward_from = true
 
+# optional text added after the link and forwarded author; empty by default
+text = ""
+
 
 [options.mastodon_to_telegram]
 # whether to forward messages from mastodon to telegram
@@ -90,3 +93,6 @@ add_link = true
 
 # optional, additional tags to add to the message
 tags = ["#mastodon"]
+
+# optional text added after the link and tags; empty by default
+text = ""
