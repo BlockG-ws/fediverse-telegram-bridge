@@ -16,6 +16,10 @@ If channel posts are not received, check that the bot is a channel administrator
 
 To append custom text to forwarded posts, set `text` under `[options.telegram_to_mastodon.footer]` or `[options.mastodon_to_telegram.footer]`. For example, `text = "Forwarded by my bridge"`. The default is an empty string, which adds no custom text.
 
+Telegram text and media captions are converted from Telegram formatting to Fediverse Markdown, including bold, italic, strikethrough, code, quotes, and links. Formatting without a Markdown equivalent, such as underline and spoilers, is forwarded as plain text.
+
+Fediverse HTML posts are forwarded to Telegram with their text formatting, links, and paragraph breaks preserved.
+
 ## Changes in the fork
 - Use Telethon for Telegram messages and media albums.
 - Keep `pyproject.toml`, `requirements.txt`, and `uv.lock` dependencies consistent.

@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+from html import escape as escape_html
 from tempfile import TemporaryDirectory
 from typing import Type
 from urllib.parse import urlencode, urlsplit, urlunsplit
@@ -9,7 +10,6 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 from mastodon import AttribAccessDict, CallbackStreamListener, Mastodon, MastodonAPIError
 from mastodon.return_types import Status, try_cast_recurse
 from telethon import TelegramClient, events
-from telethon.helpers import add_surrogate, del_surrogate
 from telethon.tl.custom.message import Message
 from websockets.asyncio.client import connect
 
@@ -17,7 +17,7 @@ from .filter import Filter, MastodonFilter, TelegramFilter
 from .footer import Footer, MastodonFooter, TelegramFooter
 from .typing import (BridgeOptionsDict, MastodonOptionsDict, MastodonToTelegramOptions,
                      TelegramOptionsDict, TelegramToMastodonOptions)
-from .utils import format_exception, markdownify
+from .utils import fediverse_to_telegram_html, format_exception, telegram_to_markdown
 
 
 logger = logging.getLogger(__name__)
@@ -76,9 +76,9 @@ class Bridge:
     async def _send_media_to_mastodon(self, messages: list[Message]) -> None:
         cfg = self.telegram_to_mastodon
         caption_message = next((message for message in messages if message.raw_text), messages[0])
-        text = caption_message.raw_text or ''
-        if not self.mastodon_filter(text):
+        if not self.mastodon_filter(caption_message.raw_text or ''):
             return
+        text = telegram_to_markdown(caption_message.raw_text or '', caption_message.entities)
         if len(messages) > 4:
             logger.warning('Too many media items: %d', len(messages))
             return
@@ -118,13 +118,7 @@ class Bridge:
             elif message.raw_text:
                 if not self.mastodon_filter(message.raw_text):
                     return
-                text = add_surrogate(message.raw_text)
-                for entity, entity_text in reversed(list(message.get_entities_text())):
-                    if getattr(entity, 'url', None):
-                        start = entity.offset
-                        end = start + entity.length
-                        text = text[:start] + f'[{add_surrogate(entity_text)}]({entity.url})' + text[end:]
-                text = del_surrogate(text)
+                text = telegram_to_markdown(message.raw_text, message.entities)
                 footer = self.mastodon_footer(message)
                 if footer:
                     text += f'\n\n{footer}'
@@ -158,24 +152,24 @@ class Bridge:
                     if status.reblog.visibility != 'public':
                         return
                     await self.telegram.send_message(cfg.channel_chat_id,
-                                                     markdownify(self.telegram_footer(status.reblog)),
-                                                     parse_mode='md', link_preview=False)
+                                                     escape_html(self.telegram_footer(status.reblog)),
+                                                     parse_mode='html', link_preview=False)
                     return
                 status = status.reblog
-            text = markdownify(status.content)
+            text = fediverse_to_telegram_html(status.content)
             if status.spoiler_text:
-                text = f'**{status.spoiler_text}**\n\n{text}'
+                text = f'<strong>{escape_html(status.spoiler_text)}</strong>\n\n{text}'
             footer = self.telegram_footer(status)
             if footer:
-                text += '\n' + markdownify(footer)
+                text += '\n' + escape_html(footer)
             media_urls = [item.url for item in status.media_attachments
                           if item.type in ('image', 'video')]
             if media_urls:
                 await self.telegram.send_file(cfg.channel_chat_id, media_urls,
-                                              caption=text, parse_mode='md')
+                                              caption=text, parse_mode='html')
             else:
                 await self.telegram.send_message(cfg.channel_chat_id, text,
-                                                 parse_mode='md', link_preview=False)
+                                                 parse_mode='html', link_preview=False)
         except Exception as exc:
             await self._report_error(cfg.pm_chat_id, exc)
 

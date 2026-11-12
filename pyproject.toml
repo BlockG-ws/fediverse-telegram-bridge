@@ -12,6 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "cubercsl", email = "hi@cubercsl.site" }]
 dependencies = [
     "betterlogging~=1.0.0",
+    "beautifulsoup4~=4.15.0",
     "Mastodon.py~=2.1.4",
     "markdownify~=1.2.0",
     "Telethon>=1.36,<2",
