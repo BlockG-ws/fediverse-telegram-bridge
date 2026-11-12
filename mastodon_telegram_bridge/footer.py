@@ -51,6 +51,9 @@ class MastodonFooter(Footer):
         self.show_forward_from = show_forward_from
         self.text = text
 
+    def __call__(self, message: Message) -> str:
+        return '\n\n'.join(self.make_footer(message))
+
     def __get_forward_name(self, message: Message) -> Optional[str]:
         origin = message.fwd_from
         if not origin:
