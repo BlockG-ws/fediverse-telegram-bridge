@@ -196,7 +196,9 @@ class Bridge:
             return
         try:
             text = self._format_telegram_message(message)
-            await asyncio.to_thread(self.mastodon.status_update, post.status_id, text)
+            await asyncio.to_thread(self.mastodon._Mastodon__status_internal, text,
+                                    edit=post.status_id,
+                                    content_type=f'text/{self.telegram_to_mastodon.format}')
         except Exception as exc:
             await self._report_error(self.telegram_to_mastodon.pm_chat_id, exc)
 
