@@ -78,12 +78,13 @@ class TelegramToMastodonFilterOptionsDict(TypedDict):
     exclude: Iterable[str]
 
 
-class TelegramToMastodonOptionsDict(TypedDict):
+class TelegramToMastodonOptionsDict(TypedDict, total=False):
     """Telegram To Mastodon Options Dict
     """
     disable: bool
     channel_chat_id: int
     pm_chat_id: int
+    visibility: str
     filter: OptionsDict
     footer: OptionsDict
 
@@ -130,6 +131,7 @@ class TelegramToMastodonOptions(NamedTuple):
     disable: bool = False
     channel_chat_id: int = 0
     pm_chat_id: int = 0
+    visibility: str | None = None
     filter: OptionsDict = TelegramToMastodonFilterOptionsDict(
         include=[],
         exclude=['#nofwd', '#noforward', '#mastodon'],

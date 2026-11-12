@@ -41,6 +41,8 @@ class Bridge:
         self._mastodon_app_name = self.mastodon.app_verify_credentials().name
         self.mastodon_to_telegram = MastodonToTelegramOptions(**options['mastodon_to_telegram'])
         self.telegram_to_mastodon = TelegramToMastodonOptions(**options['telegram_to_mastodon'])
+        if self.telegram_to_mastodon.visibility not in (None, 'public', 'unlisted', 'private', 'direct'):
+            raise ValueError('telegram_to_mastodon.visibility must be public, unlisted, private or direct')
         if self.telegram_to_mastodon.disable and self.mastodon_to_telegram.disable:
             raise ValueError('Both telegram_to_mastodon and mastodon_to_telegram are disabled, nothing to do.')
         self.mastodon_filter = mastodon_filter(**self.telegram_to_mastodon.filter)
@@ -100,7 +102,8 @@ class Bridge:
         if footer:
             text += f'\n\n{footer}'
         status = await asyncio.to_thread(self.mastodon.status_post, text,
-                                         content_type='text/markdown', media_ids=media_ids)
+                                         content_type='text/markdown', media_ids=media_ids,
+                                         visibility=cfg.visibility)
         await self._notify_success(caption_message, status.url, cfg.pm_chat_id)
 
     async def _notify_success(self, message: Message, url: str, pm_chat_id: int) -> None:
@@ -123,7 +126,7 @@ class Bridge:
                 if footer:
                     text += f'\n\n{footer}'
                 status = await asyncio.to_thread(self.mastodon.status_post, text,
-                                                  content_type='text/markdown')
+                                                  content_type='text/markdown', visibility=cfg.visibility)
                 await self._notify_success(message, status.url, cfg.pm_chat_id)
         except Exception as exc:
             await self._report_error(cfg.pm_chat_id, exc)

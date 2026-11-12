@@ -37,6 +37,11 @@ channel_chat_id = -1000000000000
 # you should create a private chat with the bot using /start command
 pm_chat_id = 0
 
+# Optional: override the Fediverse account's default visibility for forwarded posts.
+# Allowed values: "public", "unlisted", "private", "direct".
+# Omit this setting to keep the account default.
+# visibility = "unlisted"
+
 
 [options.telegram_to_mastodon.filter]
 # optional, filters for messages forwarding
