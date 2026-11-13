@@ -45,10 +45,26 @@ class Storage:
             return session.scalar(select(BridgedPost).join(TelegramMessage).where(
                 TelegramMessage.chat_id == chat_id, TelegramMessage.message_id == message_id))
 
+    def telegram_posts_by_message_id(self, message_id: int) -> list[BridgedPost]:
+        with self.sessions() as session:
+            return list(session.scalars(select(BridgedPost).join(TelegramMessage).where(
+                TelegramMessage.message_id == message_id)).all())
+
     def fediverse_post(self, status_id: str) -> BridgedPost | None:
         with self.sessions() as session:
             return session.scalar(select(BridgedPost).where(
                 BridgedPost.instance == self.instance, BridgedPost.status_id == str(status_id)))
+
+    def post_messages(self, post_id: int) -> list[tuple[int, int]]:
+        with self.sessions() as session:
+            return list(session.execute(select(TelegramMessage.chat_id, TelegramMessage.message_id).where(
+                TelegramMessage.post_id == post_id)).all())
+
+    def sent_telegram_messages(self, chat_id: int) -> list[int]:
+        with self.sessions() as session:
+            return list(session.scalars(select(TelegramMessage.message_id).join(BridgedPost).where(
+                TelegramMessage.chat_id == chat_id,
+                BridgedPost.origin == 'telegram', BridgedPost.state == 'sent')).all())
 
     def reserve_telegram(self, messages: list[tuple[int, int]]) -> int | None:
         with self.sessions.begin() as session:

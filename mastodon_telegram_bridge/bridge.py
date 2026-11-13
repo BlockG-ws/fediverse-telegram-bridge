@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 from typing import Type
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
-from mastodon import AttribAccessDict, CallbackStreamListener, Mastodon, MastodonAPIError
+from mastodon import AttribAccessDict, CallbackStreamListener, Mastodon, MastodonAPIError, MastodonNotFoundError
 from mastodon.return_types import Status, try_cast_recurse
 from telethon import TelegramClient, events
 from telethon.extensions import html as telegram_html
@@ -211,18 +211,71 @@ class Bridge:
             await self._report_error(self.telegram_to_mastodon.pm_chat_id, exc)
 
     async def _on_deleted_message(self, event: events.MessageDeleted.Event) -> None:
-        if event.chat_id is None:
-            logger.warning('Telegram deletion without chat ID cannot be synchronized')
-            return
-        for message_id in event.deleted_ids:
-            post = self.storage.telegram_post(event.chat_id, message_id)
-            if not post or post.origin != 'telegram' or post.state != 'sent':
-                continue
+        logger.info('Received Telegram deletion event: chat=%s messages=%s', event.chat_id, event.deleted_ids)
+        await self._delete_telegram_messages(event.chat_id, event.deleted_ids)
+
+    async def _delete_telegram_messages(self, chat_id: int | None, message_ids: list[int]) -> None:
+        for message_id in message_ids:
+            if chat_id is None:
+                posts = self.storage.telegram_posts_by_message_id(message_id)
+            else:
+                post = self.storage.telegram_post(chat_id, message_id)
+                posts = [post] if post else []
+            for post in posts:
+                if post.state != 'sent':
+                    continue
+                try:
+                    async with self._posting_lock:
+                        current = self.storage.fediverse_post(post.status_id)
+                        if not current or current.state != 'sent':
+                            continue
+                        try:
+                            await asyncio.to_thread(self.mastodon.status_delete, post.status_id)
+                        except MastodonNotFoundError:
+                            logger.info('Fediverse status %s was already deleted', post.status_id)
+                        self.storage.mark_deleted(post.id)
+                        logger.info('Synchronized deletion of Telegram message %s and Fediverse status %s',
+                                    message_id, post.status_id)
+                except Exception as exc:
+                    await self._report_error(self.telegram_to_mastodon.pm_chat_id, exc)
+
+    async def _check_channel_deletions(self, missing_last_check: set[int]) -> set[int]:
+        chat_id = self.telegram_to_mastodon.channel_chat_id
+        message_ids = self.storage.sent_telegram_messages(chat_id)
+        missing_now: set[int] = set()
+        for start in range(0, len(message_ids), 100):
+            batch = message_ids[start:start + 100]
+            messages = await self.telegram.get_messages(chat_id, ids=batch)
+            missing_now.update(message_id for message_id, message in zip(batch, messages)
+                               if message is None)
+        for message_id in missing_now & missing_last_check:
+            logger.info('Telegram channel message %s is missing on consecutive checks', message_id)
+            await self._delete_telegram_messages(chat_id, [message_id])
+        return missing_now
+
+    async def _poll_channel_deletions(self) -> None:
+        missing_last_check: set[int] = set()
+        while True:
             try:
-                await asyncio.to_thread(self.mastodon.status_delete, post.status_id)
+                missing_last_check = await self._check_channel_deletions(missing_last_check)
+            except Exception:
+                logger.exception('Could not check Telegram channel messages for deletions')
+                missing_last_check.clear()
+            await asyncio.sleep(60)
+
+    async def _on_deleted_status(self, status_id: str) -> None:
+        post = self.storage.fediverse_post(status_id)
+        if not post or post.state != 'sent':
+            return
+        try:
+            async with self._posting_lock:
+                if self.storage.fediverse_post(status_id).state != 'sent':
+                    return
+                for chat_id, message_id in self.storage.post_messages(post.id):
+                    await self.telegram.delete_messages(chat_id, [message_id])
                 self.storage.mark_deleted(post.id)
-            except Exception as exc:
-                await self._report_error(self.telegram_to_mastodon.pm_chat_id, exc)
+        except Exception as exc:
+            await self._report_error(self.mastodon_to_telegram.pm_chat_id, exc)
 
     async def _send_message_to_telegram(self, status: AttribAccessDict) -> None:
         cfg = self.mastodon_to_telegram
@@ -273,7 +326,7 @@ class Bridge:
         sent_messages = sent if isinstance(sent, list) else [sent]
         self.storage.complete_fediverse(post_id, [(message.chat_id, message.id) for message in sent_messages])
 
-    async def _stream_pleroma_user(self, queue: asyncio.Queue[AttribAccessDict], streaming_url: str) -> None:
+    async def _stream_pleroma_user(self, queue: asyncio.Queue[tuple[str, object]], streaming_url: str) -> None:
         parsed = urlsplit(streaming_url)
         path = parsed.path.rstrip('/') or '/api/v1/streaming'
         query = urlencode({'stream': 'user', 'access_token': self.mastodon.access_token})
@@ -287,7 +340,9 @@ class Bridge:
                         if event.get('event') == 'update':
                             payload = event['payload']
                             status = json.loads(payload) if isinstance(payload, str) else payload
-                            await queue.put(try_cast_recurse(Status, status))
+                            await queue.put(('update', try_cast_recurse(Status, status)))
+                        elif event.get('event') == 'delete':
+                            await queue.put(('delete', event['payload']))
             except Exception as exc:
                 logger.warning('Pleroma/Akkoma user stream disconnected: %s',
                                str(exc).replace(self.mastodon.access_token, '[redacted]'))
@@ -295,10 +350,11 @@ class Bridge:
 
     async def _run(self) -> None:
         self.storage = Storage(self.storage_path, self.mastodon.api_base_url)
-        queue: asyncio.Queue[AttribAccessDict] = asyncio.Queue()
+        queue: asyncio.Queue[tuple[str, object]] = asyncio.Queue()
         stream = None
         stream_task = None
         consumer = None
+        deletion_poll_task = None
         try:
             await self.telegram.start(bot_token=self.bot_token)
             if not self.telegram_to_mastodon.disable:
@@ -314,31 +370,37 @@ class Bridge:
                     self._on_edited_message,
                     events.MessageEdited(chats=self.telegram_to_mastodon.channel_chat_id),
                 )
-                self.telegram.add_event_handler(
-                    self._on_deleted_message,
-                    events.MessageDeleted(chats=self.telegram_to_mastodon.channel_chat_id),
+            self.telegram.add_event_handler(self._on_deleted_message, events.MessageDeleted())
+            if not self.telegram_to_mastodon.disable:
+                deletion_poll_task = asyncio.create_task(self._poll_channel_deletions())
+            instance = await asyncio.to_thread(self.mastodon.instance)
+            if any(name in instance.version.lower() for name in ('pleroma', 'akkoma')):
+                stream_task = asyncio.create_task(
+                    self._stream_pleroma_user(queue, instance.urls.streaming_api),
                 )
-            if not self.mastodon_to_telegram.disable:
-                instance = await asyncio.to_thread(self.mastodon.instance)
-                if any(name in instance.version.lower() for name in ('pleroma', 'akkoma')):
-                    stream_task = asyncio.create_task(
-                        self._stream_pleroma_user(queue, instance.urls.streaming_api),
-                    )
-                else:
-                    loop = asyncio.get_running_loop()
-                    listener = CallbackStreamListener(
-                        update_handler=lambda status: loop.call_soon_threadsafe(queue.put_nowait, status),
-                    )
-                    stream = await asyncio.to_thread(self.mastodon.stream_user, listener=listener,
-                                                      run_async=True, reconnect_async=True)
+            else:
+                loop = asyncio.get_running_loop()
+                listener = CallbackStreamListener(
+                    update_handler=lambda status: loop.call_soon_threadsafe(queue.put_nowait, ('update', status)),
+                    delete_handler=lambda status_id: loop.call_soon_threadsafe(queue.put_nowait, ('delete', status_id)),
+                )
+                stream = await asyncio.to_thread(self.mastodon.stream_user, listener=listener,
+                                                  run_async=True, reconnect_async=True)
 
-                async def consume() -> None:
-                    while True:
-                        await self._send_message_to_telegram(await queue.get())
+            async def consume() -> None:
+                while True:
+                    event_type, payload = await queue.get()
+                    if event_type == 'delete':
+                        await self._on_deleted_status(payload)
+                    elif not self.mastodon_to_telegram.disable:
+                        await self._send_message_to_telegram(payload)
 
-                consumer = asyncio.create_task(consume())
+            consumer = asyncio.create_task(consume())
             await self.telegram.run_until_disconnected()
         finally:
+            if deletion_poll_task:
+                deletion_poll_task.cancel()
+                await asyncio.gather(deletion_poll_task, return_exceptions=True)
             if stream_task:
                 stream_task.cancel()
                 await asyncio.gather(stream_task, return_exceptions=True)

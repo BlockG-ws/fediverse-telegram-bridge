@@ -20,7 +20,7 @@ api_base_url = "mastodon.social"
 # create a new application at https://<api_base_url>/settings/applications/new
 # the following permissions are required:
 #   read:accounts 
-#   read:statuses   (required for forwarding to telegram or editing forwarded media captions)
+#   read:statuses   (required for forwarding to telegram, editing media captions, or syncing deletions from Fediverse)
 #   write:media     (optional, if you want to forward media to mastodon)
 #   write:statuses  (optional, if you want to forward toot to mastodon)
 access_token = "ABCDEF1234567890ABCDEF1234567890ABCDEF12345"
