@@ -199,9 +199,14 @@ class Bridge:
             return
         try:
             text = self._format_telegram_message(message)
+            media_ids = None
+            if message.photo or message.video:
+                status = await asyncio.to_thread(self.mastodon.status, post.status_id)
+                media_ids = [media.id for media in (status.media_attachments or [])]
             await asyncio.to_thread(self.mastodon._Mastodon__status_internal, text,
                                     edit=post.status_id,
-                                    content_type=f'text/{self.telegram_to_mastodon.format}')
+                                    content_type=f'text/{self.telegram_to_mastodon.format}',
+                                    media_ids=media_ids)
         except Exception as exc:
             await self._report_error(self.telegram_to_mastodon.pm_chat_id, exc)
 
