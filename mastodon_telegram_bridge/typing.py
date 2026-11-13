@@ -60,6 +60,8 @@ class MastodonToTelegramOptionsDict(TypedDict):
     disable: bool
     channel_chat_id: int
     pm_chat_id: int
+    forward_notifications: NotRequired[bool]
+    notification_chat_id: NotRequired[int]
     forward_reblog_link_only: bool
     filter: OptionsDict
     footer: OptionsDict
@@ -123,6 +125,8 @@ class MastodonToTelegramOptions(NamedTuple):
     disable: bool = False
     channel_chat_id: int = 0
     pm_chat_id: int = 0
+    forward_notifications: bool = False
+    notification_chat_id: int = 0
     forward_reblog_link_only: bool = True
     filter: OptionsDict = MastodonToTelegramFilterOptionsDict(
         scope=['public', 'unlisted'],

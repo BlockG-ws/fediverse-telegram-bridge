@@ -21,6 +21,7 @@ api_base_url = "mastodon.social"
 # the following permissions are required:
 #   read:accounts 
 #   read:statuses   (required for forwarding to telegram, editing media captions, or syncing deletions from Fediverse)
+#   read:notifications (required for forwarding Fediverse notifications)
 #   write:media     (optional, if you want to forward media to mastodon)
 #   write:statuses  (optional, if you want to forward toot to mastodon)
 access_token = "ABCDEF1234567890ABCDEF1234567890ABCDEF12345"
@@ -90,6 +91,14 @@ channel_chat_id = -1000000000000
 # private chat id for exceptions reporting
 # can be different from the one used for telegram_to_mastodon
 pm_chat_id = 0
+
+# Forward likes, boosts, mentions/replies, follows, and other Fediverse notifications.
+# Requires read:notifications access. Notifications are sent to pm_chat_id by default.
+forward_notifications = false
+
+# Optional: send notifications to a different Telegram chat instead of pm_chat_id.
+# Add the bot to the chat and grant it permission to post there.
+# notification_chat_id = -1000000000000
 
 # if true, will forward only the link to the original post
 # please note that the link will be added to the footer, so add_link in footer should be true

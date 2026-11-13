@@ -7,8 +7,9 @@ from tempfile import TemporaryDirectory
 from typing import Type
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
+from bs4 import BeautifulSoup
 from mastodon import AttribAccessDict, CallbackStreamListener, Mastodon, MastodonAPIError, MastodonNotFoundError
-from mastodon.return_types import Status, try_cast_recurse
+from mastodon.return_types import Notification, Status, try_cast_recurse
 from telethon import TelegramClient, events
 from telethon.extensions import html as telegram_html
 from telethon.tl.custom.message import Message
@@ -50,8 +51,9 @@ class Bridge:
             raise ValueError('telegram_to_mastodon.language must be a language code')
         if self.telegram_to_mastodon.format not in ('markdown', 'plain', 'html'):
             raise ValueError('telegram_to_mastodon.format must be markdown, plain or html')
-        if self.telegram_to_mastodon.disable and self.mastodon_to_telegram.disable:
-            raise ValueError('Both telegram_to_mastodon and mastodon_to_telegram are disabled, nothing to do.')
+        if (self.telegram_to_mastodon.disable and self.mastodon_to_telegram.disable and
+                not self.mastodon_to_telegram.forward_notifications):
+            raise ValueError('Both forwarding directions and notifications are disabled, nothing to do.')
         self.mastodon_filter = mastodon_filter(**self.telegram_to_mastodon.filter)
         self.telegram_filter = telegram_filter(**self.mastodon_to_telegram.filter)
         self.mastodon_footer = mastodon_footer(**self.telegram_to_mastodon.footer)
@@ -301,6 +303,41 @@ class Bridge:
         except Exception as exc:
             await self._report_error(cfg.pm_chat_id, exc)
 
+    async def _send_notification_to_telegram(self, notification: AttribAccessDict) -> None:
+        cfg = self.mastodon_to_telegram
+        if not cfg.forward_notifications:
+            return
+        chat_id = cfg.notification_chat_id or cfg.pm_chat_id
+        try:
+            labels = {
+                'favourite': 'Liked your post',
+                'reblog': 'Boosted your post',
+                'mention': 'Mentioned or replied to you',
+                'follow': 'Followed you',
+                'follow_request': 'Requested to follow you',
+                'poll': 'A poll has ended',
+                'status': 'Posted a new status',
+                'update': 'Edited a post',
+            }
+            kind = notification.get('type', 'notification')
+            account = notification.get('account') or {}
+            name = account.get('display_name') or account.get('acct') or account.get('username') or 'Someone'
+            text = f'<strong>{escape_html(name)}</strong>: {escape_html(labels.get(kind, kind))}'
+            status = notification.get('status')
+            if status:
+                content = BeautifulSoup(status.get('content') or '', 'html.parser').get_text(' ', strip=True)
+                spoiler = status.get('spoiler_text') or ''
+                if spoiler:
+                    content = f'{spoiler}\n{content}'
+                if content:
+                    text += f'\n\n{escape_html(content[:3000])}'
+            url = (status.get('url') if status else None) or account.get('url')
+            if url:
+                text += f'\n\n<a href="{escape_html(url, quote=True)}">Open on Fediverse</a>'
+            await self.telegram.send_message(chat_id, text, parse_mode='html', link_preview=False)
+        except Exception as exc:
+            await self._report_error(cfg.pm_chat_id, exc)
+
     async def _post_to_telegram(self, status: AttribAccessDict, post_id: int) -> None:
         cfg = self.mastodon_to_telegram
         if status.reblog:
@@ -348,6 +385,10 @@ class Bridge:
                             await queue.put(('update', try_cast_recurse(Status, status)))
                         elif event.get('event') == 'delete':
                             await queue.put(('delete', event['payload']))
+                        elif event.get('event') == 'notification' and self.mastodon_to_telegram.forward_notifications:
+                            payload = event['payload']
+                            notification = json.loads(payload) if isinstance(payload, str) else payload
+                            await queue.put(('notification', try_cast_recurse(Notification, notification)))
             except Exception as exc:
                 logger.warning('Pleroma/Akkoma user stream disconnected: %s',
                                str(exc).replace(self.mastodon.access_token, '[redacted]'))
@@ -393,6 +434,8 @@ class Bridge:
                 listener = CallbackStreamListener(
                     update_handler=lambda status: loop.call_soon_threadsafe(queue.put_nowait, ('update', status)),
                     delete_handler=lambda status_id: loop.call_soon_threadsafe(queue.put_nowait, ('delete', status_id)),
+                    notification_handler=lambda notification: loop.call_soon_threadsafe(
+                        queue.put_nowait, ('notification', notification)),
                 )
                 stream = await asyncio.to_thread(self.mastodon.stream_user, listener=listener,
                                                   run_async=True, reconnect_async=True)
@@ -402,6 +445,8 @@ class Bridge:
                     event_type, payload = await queue.get()
                     if event_type == 'delete':
                         await self._on_deleted_status(payload)
+                    elif event_type == 'notification':
+                        await self._send_notification_to_telegram(payload)
                     elif not self.mastodon_to_telegram.disable:
                         await self._send_message_to_telegram(payload)
 

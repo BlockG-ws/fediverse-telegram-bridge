@@ -18,6 +18,8 @@ Forwarded messages are recorded by their Telegram chat/message IDs and Fediverse
 
 If channel posts are not received, check that the bot is a channel administrator. For group messages, disable bot privacy in BotFather if the bot needs to see all messages.
 
+To forward Fediverse notifications such as likes, boosts, mentions, replies, and follows, set `forward_notifications = true` under `[options.mastodon_to_telegram]`. Notifications go to that section's `pm_chat_id` by default. Set `notification_chat_id` in the same section to send them to another Telegram chat; the bot must be able to post there. The Fediverse access token needs `read:notifications` permission. Notification forwarding also works when both status forwarding directions are disabled.
+
 To append custom text to forwarded posts, set `text` under `[options.telegram_to_mastodon.footer]` or `[options.mastodon_to_telegram.footer]`. For example, `text = "Forwarded by my bridge"`. The default is an empty string, which adds no custom text.
 
 To override the Fediverse account's default visibility for posts forwarded from Telegram, set `visibility = "unlisted"` under `[options.telegram_to_mastodon]`. Supported values are `public`, `unlisted`, `private`, and `direct`; omitting the setting keeps the account default.
