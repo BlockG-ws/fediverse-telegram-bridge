@@ -46,6 +46,8 @@ class Bridge:
         self.telegram_to_mastodon = TelegramToMastodonOptions(**options['telegram_to_mastodon'])
         if self.telegram_to_mastodon.visibility not in (None, 'public', 'unlisted', 'private', 'direct'):
             raise ValueError('telegram_to_mastodon.visibility must be public, unlisted, private or direct')
+        if self.telegram_to_mastodon.language is not None and not isinstance(self.telegram_to_mastodon.language, str):
+            raise ValueError('telegram_to_mastodon.language must be a language code')
         if self.telegram_to_mastodon.format not in ('markdown', 'plain', 'html'):
             raise ValueError('telegram_to_mastodon.format must be markdown, plain or html')
         if self.telegram_to_mastodon.disable and self.mastodon_to_telegram.disable:
@@ -136,6 +138,7 @@ class Bridge:
             status = await asyncio.to_thread(self.mastodon.status_post, text,
                                              content_type=f'text/{cfg.format}', media_ids=media_ids,
                                              visibility=cfg.visibility,
+                                             language=cfg.language,
                                              in_reply_to_id=self._reply_status_id(caption_message),
                                              idempotency_key=f'tg:{caption_message.chat_id}:{caption_message.id}')
             self.storage.complete_telegram(post_id, status.id)
@@ -170,6 +173,7 @@ class Bridge:
                     async with self._posting_lock:
                         status = await asyncio.to_thread(self.mastodon.status_post, text,
                                                           content_type=f'text/{cfg.format}', visibility=cfg.visibility,
+                                                          language=cfg.language,
                                                           in_reply_to_id=self._reply_status_id(message),
                                                           idempotency_key=f'tg:{message.chat_id}:{message.id}')
                         self.storage.complete_telegram(post_id, status.id)
@@ -206,6 +210,7 @@ class Bridge:
             await asyncio.to_thread(self.mastodon._Mastodon__status_internal, text,
                                     edit=post.status_id,
                                     content_type=f'text/{self.telegram_to_mastodon.format}',
+                                    language=self.telegram_to_mastodon.language,
                                     media_ids=media_ids)
         except Exception as exc:
             await self._report_error(self.telegram_to_mastodon.pm_chat_id, exc)
@@ -374,6 +379,11 @@ class Bridge:
             if not self.telegram_to_mastodon.disable:
                 deletion_poll_task = asyncio.create_task(self._poll_channel_deletions())
             instance = await asyncio.to_thread(self.mastodon.instance)
+            language = self.telegram_to_mastodon.language
+            languages = instance.get('languages')
+            if language is not None and languages is not None and language not in languages:
+                logger.warning('Configured post language %s is not in the instance language list: %s',
+                               language, languages)
             if any(name in instance.version.lower() for name in ('pleroma', 'akkoma')):
                 stream_task = asyncio.create_task(
                     self._stream_pleroma_user(queue, instance.urls.streaming_api),

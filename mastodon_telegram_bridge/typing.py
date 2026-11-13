@@ -87,6 +87,7 @@ class TelegramToMastodonOptionsDict(TypedDict, total=False):
     channel_chat_id: int
     pm_chat_id: int
     visibility: str
+    language: str
     format: str
     filter: OptionsDict
     footer: OptionsDict
@@ -140,6 +141,7 @@ class TelegramToMastodonOptions(NamedTuple):
     channel_chat_id: int = 0
     pm_chat_id: int = 0
     visibility: str | None = None
+    language: str | None = None
     format: str = 'markdown'
     filter: OptionsDict = TelegramToMastodonFilterOptionsDict(
         include=[],

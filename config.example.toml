@@ -46,6 +46,11 @@ pm_chat_id = 0
 # Omit this setting to keep the account default.
 # visibility = "unlisted"
 
+# Optional: language code for posts forwarded to Fediverse, e.g. "en" or "zh".
+# If omitted, the server detects the language automatically.
+# A warning is logged at startup if the code is absent from the instance's language list.
+# language = "en"
+
 # Format for Telegram text and captions sent to Fediverse: "markdown", "plain", or "html".
 # Defaults to "markdown". The Fediverse server must support the chosen content type.
 # format = "markdown"
